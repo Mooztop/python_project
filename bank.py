@@ -24,6 +24,54 @@ class Transaction(Base):
         self.transaction_text = transaction_text
         self.timestamp = timestamp
 
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(255), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    deposit = Column(Integer, default=0)
+    phone_number = Column(String(20), default='')
+    encrypted_password = Column(String(255), default='')
+
+    def __init__(self, username, password, deposit=0, phone_number=''):
+        self.username = username
+        self.password = password
+        self.deposit = deposit
+        self.phone_number = phone_number
+        self.encrypted_password = ''
+
+    def get_phone_number(self):
+        return self.phone_number
+
+    def get_username(self):
+        return self.username
+
+    def get_deposit(self):
+        return self.deposit
+
+    def set_deposit(self, money):
+        self.deposit += money
+
+    def get_transactions(self):
+        # Вам может потребоваться реализовать этот метод, используя запросы к базе данных
+        pass
+
+    def set_transactions(self, transaction):
+        # Вам может потребоваться реализовать этот метод, используя запросы к базе данных
+        pass
+
+    def convert_to_json(self):
+        return {
+            "username": self.username,
+            "password": self.password,
+            "deposit": self.deposit,
+            "phone_number": self.phone_number
+        }
+
+    def check_password(self, password):
+        return self.password == password
+
 engine = create_engine(
     f"mysql+pymysql://{user}:{password}@{host}/{db_name}", echo=False
 )
@@ -31,6 +79,9 @@ Base.metadata.create_all(engine)
 
 Session = sessionmaker(bind=engine)
 session = Session()
+
+
+
 
 # def current_datetime():
 #     current_datetime = (datetime.now() + timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S")
@@ -44,32 +95,64 @@ def current_datetime():
 logging.basicConfig(filename="errors.log", level=logging.ERROR, format="%(levelname)s - %(message)s")
 
 
-class FileWorker():
-    def read_json(self):
-        with open("data.json") as f:
-            return json.load(f)
+# class FileWorker():
+#     def read_json(self):
+#         with open("data.json") as f:
+#             return json.load(f)
+#
+#     def convert_user(self, user):
+#         return User(
+#             user["username"],
+#             user["password"],
+#             user["deposit"],
+#             user["transactions"],
+#             phone_number=user.get("phone_number", '')
+#         )
+#
+#     def convert_users(self, users):
+#         new_users = []
+#         for user in users:
+#             new_user = self.convert_user(user)
+#             new_users.append(new_user)
+#         return new_users
+#
+#     def get_users_and_current_user(self):
+#         data = self.read_json()
+#         current_user = data["current_user"]
+#         users = self.convert_users(data["users"])
+#         return users, current_user
+#
+#     def update_json(self, users, current_user):
+#         with open("data.json", "w") as f:
+#             json.dump({
+#                 "users": [user.convert_to_json() for user in users],
+#                 "current_user": current_user
+#             }, f)
+#         Session = sessionmaker(bind=engine)
+#         session = Session()
+#
+#         for user in users:
+#             for transaction_text in user.get_transactions():
+#                 transaction = Transaction(username=user.get_username(),
+#                                           transaction_text=str(transaction_text),
+#                                           timestamp=current_datetime())
+#                 session.add(transaction)
+#
+#         session.commit()
+#         session.close()
+#
 
-    def convert_user(self, user):
-        return User(
-            user["username"],
-            user["password"],
-            user["deposit"],
-            user["transactions"],
-            phone_number=user.get("phone_number", '')
-        )
+class BankSystem():
+    def __init__(self, name):
+        self._name = name
+        self._users, self._current_user = self.get_users_and_current_user()
+        for user in self._users:
+            transactions = session.query(Transaction).filter_by(username=user.get_username()).all()
+            user.set_transactions([transaction.transaction_text for transaction in transactions])
 
-    def convert_users(self, users):
-        new_users = []
-        for user in users:
-            new_user = self.convert_user(user)
-            new_users.append(new_user)
-        return new_users
-
-    def get_users_and_current_user(self):
-        data = self.read_json()
-        current_user = data["current_user"]
-        users = self.convert_users(data["users"])
-        return users, current_user
+    def update_current_user(self, current_user):
+        self._current_user = current_user
+        self.update_users_list(self._current_user)
 
     def update_json(self, users, current_user):
         with open("data.json", "w") as f:
@@ -77,9 +160,8 @@ class FileWorker():
                 "users": [user.convert_to_json() for user in users],
                 "current_user": current_user
             }, f)
-        Session = sessionmaker(bind=engine)
-        session = Session()
 
+        # Вы также можете добавить обновление данных в базе данных SQLAlchemy
         for user in users:
             for transaction_text in user.get_transactions():
                 transaction = Transaction(username=user.get_username(),
@@ -90,18 +172,18 @@ class FileWorker():
         session.commit()
         session.close()
 
+    def get_users_and_current_user(self):
+        users = []
+        current_user = None
 
-class BankSystem(FileWorker):
-    def __init__(self, name):
-        self._name = name
-        self._users, self._current_user = self.get_users_and_current_user()
-        Session = sessionmaker(bind=engine)
-        session = Session()
-        for user in self._users:
-            transactions = session.query(Transaction).filter_by(username=user.get_username()).all()
-            user.set_transactions([transaction.transaction_text for transaction in transactions])
+        data = session.query(Transaction).all()
+        for transaction in data:
+            if transaction.username not in users:
+                users.append(transaction.username)
 
-        session.close()
+        current_user = session.query(Transaction).filter_by(username=users[0]).first().username if users else None
+
+        return users, current_user
 
     def print_commands(self):
         if self._current_user is None:
@@ -133,7 +215,9 @@ class BankSystem(FileWorker):
                 continue
 
             new_user = User(username, password, phone_number=phone_number)
-            self.update_users_list(new_user)
+            session.add(new_user)
+            session.commit()
+
             self.update_current_user(username)
             print("You have successfully created an account!")
             break
@@ -329,40 +413,40 @@ class BankSystem(FileWorker):
         self.update_json(self._users, self._current_user)
 
 
-class User():
-    def __init__(self, username, password, deposit=0, transactions=[], phone_number=''):
-        self._username = username
-        self._password = password
-        self._deposit = deposit
-        self._transactions = transactions
-        self._phone_number = phone_number  # Добавили новое поле для номера телефона
-
-    def get_phone_number(self):
-        return self._phone_number
-
-    def get_username(self):
-        return self._username
-
-    def get_deposit(self):
-        return self._deposit
-
-    def set_deposit(self, money):
-        self._deposit += money
-
-    def get_transactions(self):
-        return self._transactions
-
-    def set_transactions(self, transaction):
-        self._transactions.append(transaction)
-
-    def convert_to_json(self):
-        return {
-            "username": self._username,
-            "password": self._password,
-            "deposit": self._deposit,
-            "transactions": self._transactions,
-            "phone_number": self._phone_number  # Добавили поле в JSON
-        }
-
-    def check_password(self, password):
-        return self._password == password
+# class User():
+#     def __init__(self, username, password, deposit=0, transactions=[], phone_number=''):
+#         self._username = username
+#         self._password = password
+#         self._deposit = deposit
+#         self._transactions = transactions
+#         self._phone_number = phone_number  # Добавили новое поле для номера телефона
+#
+#     def get_phone_number(self):
+#         return self._phone_number
+#
+#     def get_username(self):
+#         return self._username
+#
+#     def get_deposit(self):
+#         return self._deposit
+#
+#     def set_deposit(self, money):
+#         self._deposit += money
+#
+#     def get_transactions(self):
+#         return self._transactions
+#
+#     def set_transactions(self, transaction):
+#         self._transactions.append(transaction)
+#
+#     def convert_to_json(self):
+#         return {
+#             "username": self._username,
+#             "password": self._password,
+#             "deposit": self._deposit,
+#             "transactions": self._transactions,
+#             "phone_number": self._phone_number  # Добавили поле в JSON
+#         }
+#
+#     def check_password(self, password):
+#         return self._password == password
